@@ -1,0 +1,39 @@
+{
+  "name": "gl-gif",
+  "version": "1.0.0",
+  "description": "Quickly and easily generate looping GIFs using WebGL",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "beefy example.js:bundle.js --open",
+    "prepublish": "browserify example.js -o bundle.js"
+  },
+  "author": {
+    "name": "Hugh Kennedy",
+    "email": "hughskennedy@gmail.com",
+    "url": "http://hughsk.io/"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "beefy": "^2.1.1",
+    "browserify": "^5.12.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/hughsk/gl-gif.git"
+  },
+  "keywords": [
+    "gl",
+    "webgl",
+    "stackgl",
+    "gif",
+    "loop",
+    "meme",
+    "gratuitous",
+    "cats"
+  ],
+  "homepage": "https://github.com/hughsk/gl-gif",
+  "bugs": {
+    "url": "https://github.com/hughsk/gl-gif/issues"
+  }
+}
