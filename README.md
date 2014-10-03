@@ -29,7 +29,8 @@ start at `0` and gradually increase, reaching `1` during the final frame.
 be passed if an unexpected error occurs. Otherwise, `dataURI` will be a data URI
 that you can stick on an image's `src` attribute.
 
-See `[example.js](example.js)` for a usage example.
+See [`example.js`](https://github.com/hughsk/gl-gif/blob/master/example.js) for
+a usage example.
 
 ## License
 
