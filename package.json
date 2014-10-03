@@ -1,6 +1,6 @@
 {
   "name": "gl-gif",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Quickly and easily generate looping GIFs using WebGL",
   "main": "index.js",
   "license": "MIT",
