@@ -13,7 +13,12 @@
     "email": "hughskennedy@gmail.com",
     "url": "http://hughsk.io/"
   },
-  "dependencies": {},
+  "dependencies": {
+    "canvas-pixels": "0.0.0",
+    "gif.js": "^0.1.6",
+    "gl-context": "^0.1.1",
+    "raf": "^2.0.4"
+  },
   "devDependencies": {
     "beefy": "^2.1.1",
     "browserify": "^5.12.1"
