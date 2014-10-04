@@ -37,7 +37,20 @@ GIF.prototype.tick = function() {
     throw new Error('You cannot change the canvas height while recording')
   }
 
-  this.encoder.addFrame(getPixels(this.gl))
+  var pixels = getPixels(this.gl)
+  var flipped = new Uint8Array(pixels.length)
+
+  for (var x = 0; x < this.width; x++)
+  for (var y = 0; y < this.height; y++) {
+    var i = 4 * (x + this.width * y)
+    var j = 4 * (x + this.width * (this.height - y - 1))
+    flipped[i++] = pixels[j++]
+    flipped[i++] = pixels[j++]
+    flipped[i++] = pixels[j++]
+    flipped[i  ] = pixels[j  ]
+  }
+
+  this.encoder.addFrame(flipped)
 
   return true
 }
