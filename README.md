@@ -8,26 +8,38 @@ Quickly and easily generate looping GIFs with WebGL using
 
 [![NPM](https://nodei.co/npm/gl-gif.png)](https://nodei.co/npm/gl-gif/)
 
-### `gl = gif(shape, options, render, done)`
+### `gif = GIF(gl, options)`
 
-Returns a new WebGL context. `shape` is the `[width, height]` of said context.
-Accepts the following options:
+Creates a new GIF encoder attached to the `gl` context. Accepts the following
+options:
 
-* `frames`: the number of frames to include in the animation.
 * `fps`: the framerate at which the generated GIF should run.
 * `repeat`: the number of times to repeat the GIF before stopping, if applicable.
 * `transparent`: the transparent color to use, if applicable.
+* `width`: resizes the canvas `width`, which determines the size of the GIF.
+* `height`: resizes the canvas `height`, which determines the size of the GIF.
 * `quality`: the quality at which to render the GIF, where 1 is the best (but slow)
   and 20 is the worst (but fast). Defaults to 10.
 
-`render(gl, t)` is called once for each frame. It gives you a WebGL context to
-perform draw calls on, and once complete will add the finished result to the
-final GIF using `gl.readPixels`. It also passes you a `t` value, which will
-start at `0` and gradually increase, reaching `1` during the final frame.
+Note that if you change the size of your canvas after creating the encoder,
+`gif.tick` will throw an error.
 
-`done(err, dataURI)` is called when the GIF is finished rendering. `err` will
-be passed if an unexpected error occurs. Otherwise, `dataURI` will be a data URI
-that you can stick on an image's `src` attribute.
+### `gif.tick()`
+
+Captures a new frame – call this method at the end of rendering a frame.
+
+### `dataURI = gif.done()`
+
+Encodes the final GIF, returning it as a data URI that you can attach to an
+image's `src` attribute. For example:
+
+``` javascript
+img.setAttribute('src', gif.done())
+```
+
+This method may only be called once, subsequent calls will throw an error.
+
+## Example
 
 See [`example.js`](https://github.com/hughsk/gl-gif/blob/master/example.js) for
 a usage example.
