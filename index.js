@@ -1,5 +1,6 @@
 var GIFEncoder = require('gif.js/src/GIFEncoder')
 var getPixels  = require('canvas-pixels')
+var tab64      = require('tab64')
 var noop       = (function(){})
 
 module.exports = GIF
@@ -41,12 +42,23 @@ GIF.prototype.tick = function() {
   return true
 }
 
-GIF.prototype.done = function() {
+GIF.prototype.done = function(opts) {
   if (this._done) throw new Error('You may only encode a GIF once')
   this._done = true
   this.encoder.finish()
 
-  return 'data:image/gif;base64,' + btoa(
-    this.encoder.stream().getData()
-  )
+  var data = this.encoder.stream().getData()
+  if (opts && opts.dataURI) {
+    return 'data:image/gif;base64,' + btoa(data)
+  }
+
+  var raw  = tab64.decode(btoa(data), 'float32')
+  if (opts && opts.format === 'raw') {
+    return raw
+  }
+
+  var blob = new Blob([raw], { type: 'image/gif' })
+  var url  = URL.createObjectURL(blob)
+
+  return url
 }

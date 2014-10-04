@@ -28,16 +28,22 @@ Note that if you change the size of your canvas after creating the encoder,
 
 Captures a new frame – call this method at the end of rendering a frame.
 
-### `dataURI = gif.done()`
+### `dataURI = gif.done(options)`
 
-Encodes the final GIF, returning it as a data URI that you can attach to an
+Encodes the final GIF, returning it as a URL that you can attach to an
 image's `src` attribute. For example:
 
 ``` javascript
-img.setAttribute('src', gif.done())
+img.src = gif.done()
 ```
 
 This method may only be called once, subsequent calls will throw an error.
+
+You may also retrieve the data in alternative formats depending on your
+use case, using the `format` option. The following formats are available:
+
+* `dataURI`: a data URI, e.g. `data:image/gif,base64,...`
+* `raw`: the raw binary data, contained within a `Float32Array`.
 
 ## Example
 
