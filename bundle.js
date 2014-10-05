@@ -11,8 +11,10 @@ var total = remaining;
 
 var gif = GIF(gl, {
     fps: 24,
-    width: 512,
-    height: 512
+    width: 175,
+    height: 175,
+    quality: 20,
+    dither: true
 });
 
 var shader = require("glslify/adapter.js")("\n#define GLSLIFY 1\n\nprecision mediump float;\nattribute vec2 position;\nvarying vec2 vuv;\nvoid main() {\n  vuv = (position + 1.0) * 0.5;\n  gl_Position = vec4(position, 1, 1);\n}", "\n#define GLSLIFY 1\n\nprecision mediump float;\nuniform float t;\nvarying vec2 vuv;\nvoid main() {\n  gl_FragColor = vec4(t, vuv.x, vuv.y, 1);\n}", [{"name":"t","type":"float"}], [{"name":"position","type":"vec2"}])(gl);
@@ -37,8 +39,8 @@ function finish() {
     document.body.innerHTML = "<img src=" + JSON.stringify(dataURI) + ">";
     finish = noop;
 }
-},{"./":2,"a-big-triangle":21,"gl-context":30,"glslify":33,"glslify/adapter.js":32}],2:[function(require,module,exports){
-var GIFEncoder = require('gif.js/src/GIFEncoder')
+},{"./":2,"a-big-triangle":21,"gl-context":27,"glslify":30,"glslify/adapter.js":29}],2:[function(require,module,exports){
+var GIFEncoder = require('./vendor/GIFEncoder')
 var getPixels  = require('canvas-pixels')
 var tab64      = require('tab64')
 var noop       = (function(){})
@@ -61,6 +63,7 @@ function GIF(gl, opts) {
   canvas.width  = width
   canvas.height = height
 
+  if (opts.dither) encoder.setDither(opts.dither)
   encoder.setRepeat(opts.repeat || 0)
   encoder.setFrameRate(opts.fps || 30)
   encoder.setTransparent(opts.transparent || null)
@@ -116,7 +119,7 @@ GIF.prototype.done = function(opts) {
   return url
 }
 
-},{"canvas-pixels":26,"gif.js/src/GIFEncoder":27,"tab64":39}],3:[function(require,module,exports){
+},{"./vendor/GIFEncoder":38,"canvas-pixels":26,"tab64":36}],3:[function(require,module,exports){
 "use strict"
 
 var pool = require("typedarray-pool")
@@ -3969,6 +3972,689 @@ function getPixels2d(ctx) {
 }
 
 },{}],27:[function(require,module,exports){
+var raf = require('raf-component')
+
+module.exports = createContext
+
+function createContext(canvas, opts, render) {
+  if (typeof opts === 'function') {
+    render = opts
+    opts = {}
+  } else {
+    opts = opts || {}
+  }
+
+  var gl = (
+    canvas.getContext('webgl', opts) ||
+    canvas.getContext('webgl-experimental', opts) ||
+    canvas.getContext('experimental-webgl', opts)
+  )
+
+  if (!gl) {
+    throw new Error('Unable to initialize WebGL')
+  }
+
+  if (render) raf(tick)
+
+  return gl
+
+  function tick() {
+    render(gl)
+    raf(tick)
+  }
+}
+
+},{"raf-component":28}],28:[function(require,module,exports){
+/**
+ * Expose `requestAnimationFrame()`.
+ */
+
+exports = module.exports = window.requestAnimationFrame
+  || window.webkitRequestAnimationFrame
+  || window.mozRequestAnimationFrame
+  || window.oRequestAnimationFrame
+  || window.msRequestAnimationFrame
+  || fallback;
+
+/**
+ * Fallback implementation.
+ */
+
+var prev = new Date().getTime();
+function fallback(fn) {
+  var curr = new Date().getTime();
+  var ms = Math.max(0, 16 - (curr - prev));
+  var req = setTimeout(fn, ms);
+  prev = curr;
+  return req;
+}
+
+/**
+ * Cancel.
+ */
+
+var cancel = window.cancelAnimationFrame
+  || window.webkitCancelAnimationFrame
+  || window.mozCancelAnimationFrame
+  || window.oCancelAnimationFrame
+  || window.msCancelAnimationFrame
+  || window.clearTimeout;
+
+exports.cancel = function(id){
+  cancel.call(window, id);
+};
+
+},{}],29:[function(require,module,exports){
+module.exports = programify
+
+var shader = require('gl-shader-core')
+
+function programify(vertex, fragment, uniforms, attributes) {
+  return function(gl) {
+    return shader(gl, vertex, fragment, uniforms, attributes)
+  }
+}
+
+},{"gl-shader-core":35}],30:[function(require,module,exports){
+module.exports = noop
+
+function noop() {
+  throw new Error(
+      'You should bundle your code ' +
+      'using `glslify` as a transform.'
+  )
+}
+
+},{}],31:[function(require,module,exports){
+'use strict'
+
+module.exports = createAttributeWrapper
+
+//Shader attribute class
+function ShaderAttribute(gl, program, location, dimension, name, constFunc, relink) {
+  this._gl = gl
+  this._program = program
+  this._location = location
+  this._dimension = dimension
+  this._name = name
+  this._constFunc = constFunc
+  this._relink = relink
+}
+
+var proto = ShaderAttribute.prototype
+
+proto.pointer = function setAttribPointer(type, normalized, stride, offset) {
+  var gl = this._gl
+  gl.vertexAttribPointer(this._location, this._dimension, type||gl.FLOAT, !!normalized, stride||0, offset||0)
+  this._gl.enableVertexAttribArray(this._location)
+}
+
+Object.defineProperty(proto, 'location', {
+  get: function() {
+    return this._location
+  }
+  , set: function(v) {
+    if(v !== this._location) {
+      this._location = v
+      this._gl.bindAttribLocation(this._program, v, this._name)
+      this._gl.linkProgram(this._program)
+      this._relink()
+    }
+  }
+})
+
+
+//Adds a vector attribute to obj
+function addVectorAttribute(gl, program, location, dimension, obj, name, doLink) {
+  var constFuncArgs = [ 'gl', 'v' ]
+  var varNames = []
+  for(var i=0; i<dimension; ++i) {
+    constFuncArgs.push('x'+i)
+    varNames.push('x'+i)
+  }
+  constFuncArgs.push([
+    'if(x0.length===void 0){return gl.vertexAttrib', dimension, 'f(v,', varNames.join(), ')}else{return gl.vertexAttrib', dimension, 'fv(v,x0)}'
+  ].join(''))
+  var constFunc = Function.apply(undefined, constFuncArgs)
+  var attr = new ShaderAttribute(gl, program, location, dimension, name, constFunc, doLink)
+  Object.defineProperty(obj, name, {
+    set: function(x) {
+      gl.disableVertexAttribArray(attr._location)
+      constFunc(gl, attr._location, x)
+      return x
+    }
+    , get: function() {
+      return attr
+    }
+    , enumerable: true
+  })
+}
+
+//Create shims for attributes
+function createAttributeWrapper(gl, program, attributes, doLink) {
+  var obj = {}
+  for(var i=0, n=attributes.length; i<n; ++i) {
+    var a = attributes[i]
+    var name = a.name
+    var type = a.type
+    var location = gl.getAttribLocation(program, name)
+    
+    switch(type) {
+      case 'bool':
+      case 'int':
+      case 'float':
+        addVectorAttribute(gl, program, location, 1, obj, name, doLink)
+      break
+      
+      default:
+        if(type.indexOf('vec') >= 0) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error('gl-shader: Invalid data type for attribute ' + name + ': ' + type)
+          }
+          addVectorAttribute(gl, program, location, d, obj, name, doLink)
+        } else {
+          throw new Error('gl-shader: Unknown data type for attribute ' + name + ': ' + type)
+        }
+      break
+    }
+  }
+  return obj
+}
+},{}],32:[function(require,module,exports){
+'use strict'
+
+var dup = require('dup')
+var coallesceUniforms = require('./reflect')
+
+module.exports = createUniformWrapper
+
+//Binds a function and returns a value
+function identity(x) {
+  var c = new Function('y', 'return function(){return y}')
+  return c(x)
+}
+
+//Create shims for uniforms
+function createUniformWrapper(gl, program, uniforms, locations) {
+
+  function makeGetter(index) {
+    var proc = new Function('gl', 'prog', 'locations', 
+      'return function(){return gl.getUniform(prog,locations[' + index + '])}') 
+    return proc(gl, program, locations)
+  }
+
+  function makePropSetter(path, index, type) {
+    switch(type) {
+      case 'bool':
+      case 'int':
+      case 'sampler2D':
+      case 'samplerCube':
+        return 'gl.uniform1i(locations[' + index + '],obj' + path + ')'
+      case 'float':
+        return 'gl.uniform1f(locations[' + index + '],obj' + path + ')'
+      default:
+        var vidx = type.indexOf('vec')
+        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error('gl-shader: Invalid data type')
+          }
+          switch(type.charAt(0)) {
+            case 'b':
+            case 'i':
+              return 'gl.uniform' + d + 'iv(locations[' + index + '],obj' + path + ')'
+            case 'v':
+              return 'gl.uniform' + d + 'fv(locations[' + index + '],obj' + path + ')'
+            default:
+              throw new Error('gl-shader: Unrecognized data type for vector ' + name + ': ' + type)
+          }
+        } else if(type.indexOf('mat') === 0 && type.length === 4) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error('gl-shader: Invalid uniform dimension type for matrix ' + name + ': ' + type)
+          }
+          return 'gl.uniformMatrix' + d + 'fv(locations[' + index + '],false,obj' + path + ')'
+        } else {
+          throw new Error('gl-shader: Unknown uniform data type for ' + name + ': ' + type)
+        }
+      break
+    }
+  }
+
+  function enumerateIndices(prefix, type) {
+    if(typeof type !== 'object') {
+      return [ [prefix, type] ]
+    }
+    var indices = []
+    for(var id in type) {
+      var prop = type[id]
+      var tprefix = prefix
+      if(parseInt(id) + '' === id) {
+        tprefix += '[' + id + ']'
+      } else {
+        tprefix += '.' + id
+      }
+      if(typeof prop === 'object') {
+        indices.push.apply(indices, enumerateIndices(tprefix, prop))
+      } else {
+        indices.push([tprefix, prop])
+      }
+    }
+    return indices
+  }
+
+  function makeSetter(type) {
+    var code = [ 'return function updateProperty(obj){' ]
+    var indices = enumerateIndices('', type)
+    for(var i=0; i<indices.length; ++i) {
+      var item = indices[i]
+      var path = item[0]
+      var idx  = item[1]
+      if(locations[idx]) {
+        code.push(makePropSetter(path, idx, uniforms[idx].type))
+      }
+    }
+    code.push('return obj}')
+    var proc = new Function('gl', 'prog', 'locations', code.join('\n'))
+    return proc(gl, program, locations)
+  }
+
+  function defaultValue(type) {
+    switch(type) {
+      case 'bool':
+        return false
+      case 'int':
+      case 'sampler2D':
+      case 'samplerCube':
+        return 0
+      case 'float':
+        return 0.0
+      default:
+        var vidx = type.indexOf('vec')
+        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error('gl-shader: Invalid data type')
+          }
+          if(type.charAt(0) === 'b') {
+            return dup(d, false)
+          }
+          return dup(d)
+        } else if(type.indexOf('mat') === 0 && type.length === 4) {
+          var d = type.charCodeAt(type.length-1) - 48
+          if(d < 2 || d > 4) {
+            throw new Error('gl-shader: Invalid uniform dimension type for matrix ' + name + ': ' + type)
+          }
+          return dup([d,d])
+        } else {
+          throw new Error('gl-shader: Unknown uniform data type for ' + name + ': ' + type)
+        }
+      break
+    }
+  }
+
+  function storeProperty(obj, prop, type) {
+    if(typeof type === 'object') {
+      var child = processObject(type)
+      Object.defineProperty(obj, prop, {
+        get: identity(child),
+        set: makeSetter(type),
+        enumerable: true,
+        configurable: false
+      })
+    } else {
+      if(locations[type]) {
+        Object.defineProperty(obj, prop, {
+          get: makeGetter(type),
+          set: makeSetter(type),
+          enumerable: true,
+          configurable: false
+        })
+      } else {
+        obj[prop] = defaultValue(uniforms[type].type)
+      }
+    }
+  }
+
+  function processObject(obj) {
+    var result
+    if(Array.isArray(obj)) {
+      result = new Array(obj.length)
+      for(var i=0; i<obj.length; ++i) {
+        storeProperty(result, i, obj[i])
+      }
+    } else {
+      result = {}
+      for(var id in obj) {
+        storeProperty(result, id, obj[id])
+      }
+    }
+    return result
+  }
+
+  //Return data
+  var coallesced = coallesceUniforms(uniforms, true)
+  return {
+    get: identity(processObject(coallesced)),
+    set: makeSetter(coallesced),
+    enumerable: true,
+    configurable: true
+  }
+}
+
+},{"./reflect":33,"dup":34}],33:[function(require,module,exports){
+'use strict'
+
+module.exports = makeReflectTypes
+
+//Construct type info for reflection.
+//
+// This iterates over the flattened list of uniform type values and smashes them into a JSON object.
+//
+// The leaves of the resulting object are either indices or type strings representing primitive glslify types
+function makeReflectTypes(uniforms, useIndex) {
+  var obj = {}
+  for(var i=0; i<uniforms.length; ++i) {
+    var n = uniforms[i].name
+    var parts = n.split(".")
+    var o = obj
+    for(var j=0; j<parts.length; ++j) {
+      var x = parts[j].split("[")
+      if(x.length > 1) {
+        if(!(x[0] in o)) {
+          o[x[0]] = []
+        }
+        o = o[x[0]]
+        for(var k=1; k<x.length; ++k) {
+          var y = parseInt(x[k])
+          if(k<x.length-1 || j<parts.length-1) {
+            if(!(y in o)) {
+              if(k < x.length-1) {
+                o[y] = []
+              } else {
+                o[y] = {}
+              }
+            }
+            o = o[y]
+          } else {
+            if(useIndex) {
+              o[y] = i
+            } else {
+              o[y] = uniforms[i].type
+            }
+          }
+        }
+      } else if(j < parts.length-1) {
+        if(!(x[0] in o)) {
+          o[x[0]] = {}
+        }
+        o = o[x[0]]
+      } else {
+        if(useIndex) {
+          o[x[0]] = i
+        } else {
+          o[x[0]] = uniforms[i].type
+        }
+      }
+    }
+  }
+  return obj
+}
+},{}],34:[function(require,module,exports){
+module.exports=require(12)
+},{"/Users/hughsk/src/github.com/hughsk/gl-gif/node_modules/a-big-triangle/node_modules/gl-buffer/node_modules/typedarray-pool/node_modules/dup/dup.js":12}],35:[function(require,module,exports){
+'use strict'
+
+var createUniformWrapper = require('./lib/create-uniforms')
+var createAttributeWrapper = require('./lib/create-attributes')
+var makeReflect = require('./lib/reflect')
+
+//Shader object
+function Shader(gl, prog, vertShader, fragShader) {
+  this.gl = gl
+  this.handle = prog
+  this.attributes = null
+  this.uniforms = null
+  this.types = null
+  this.vertexShader = vertShader
+  this.fragmentShader = fragShader
+}
+
+//Binds the shader
+Shader.prototype.bind = function() {
+  this.gl.useProgram(this.handle)
+}
+
+//Destroy shader, release resources
+Shader.prototype.dispose = function() {
+  var gl = this.gl
+  gl.deleteShader(this.vertexShader)
+  gl.deleteShader(this.fragmentShader)
+  gl.deleteProgram(this.handle)
+}
+
+Shader.prototype.updateExports = function(uniforms, attributes) {
+  var locations = new Array(uniforms.length)
+  var program = this.handle
+  var gl = this.gl
+
+  var doLink = relinkUniforms.bind(void 0,
+    gl,
+    program,
+    locations,
+    uniforms
+  )
+  doLink()
+
+  this.types = {
+    uniforms: makeReflect(uniforms),
+    attributes: makeReflect(attributes)
+  }
+
+  this.attributes = createAttributeWrapper(
+    gl,
+    program,
+    attributes,
+    doLink
+  )
+
+  Object.defineProperty(this, 'uniforms', createUniformWrapper(
+    gl,
+    program,
+    uniforms,
+    locations
+  ))
+}
+
+//Relinks all uniforms
+function relinkUniforms(gl, program, locations, uniforms) {
+  for(var i=0; i<uniforms.length; ++i) {
+    locations[i] = gl.getUniformLocation(program, uniforms[i].name)
+  }
+}
+
+//Compiles and links a shader program with the given attribute and vertex list
+function createShader(
+    gl
+  , vertSource
+  , fragSource
+  , uniforms
+  , attributes) {
+  
+  //Compile vertex shader
+  var vertShader = gl.createShader(gl.VERTEX_SHADER)
+  gl.shaderSource(vertShader, vertSource)
+  gl.compileShader(vertShader)
+  if(!gl.getShaderParameter(vertShader, gl.COMPILE_STATUS)) {
+    var errLog = gl.getShaderInfoLog(vertShader)
+    console.error('gl-shader: Error compling vertex shader:', errLog)
+    throw new Error('gl-shader: Error compiling vertex shader:' + errLog)
+  }
+  
+  //Compile fragment shader
+  var fragShader = gl.createShader(gl.FRAGMENT_SHADER)
+  gl.shaderSource(fragShader, fragSource)
+  gl.compileShader(fragShader)
+  if(!gl.getShaderParameter(fragShader, gl.COMPILE_STATUS)) {
+    var errLog = gl.getShaderInfoLog(fragShader)
+    console.error('gl-shader: Error compiling fragment shader:', errLog)
+    throw new Error('gl-shader: Error compiling fragment shader:' + errLog)
+  }
+  
+  //Link program
+  var program = gl.createProgram()
+  gl.attachShader(program, fragShader)
+  gl.attachShader(program, vertShader)
+
+  //Optional default attriubte locations
+  attributes.forEach(function(a) {
+    if (typeof a.location === 'number') 
+      gl.bindAttribLocation(program, a.location, a.name)
+  })
+
+  gl.linkProgram(program)
+  if(!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    var errLog = gl.getProgramInfoLog(program)
+    console.error('gl-shader: Error linking shader program:', errLog)
+    throw new Error('gl-shader: Error linking shader program:' + errLog)
+  }
+  
+  //Return final linked shader object
+  var shader = new Shader(
+    gl,
+    program,
+    vertShader,
+    fragShader
+  )
+  shader.updateExports(uniforms, attributes)
+
+  return shader
+}
+
+module.exports = createShader
+
+},{"./lib/create-attributes":31,"./lib/create-uniforms":32,"./lib/reflect":33}],36:[function(require,module,exports){
+// Original implementation sourced via:
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Base64_encoding_and_decoding#Appendix.3A_Decode_a_Base64_string_to_Uint8Array_or_ArrayBuffer
+
+var dtype = require('dtype')
+var ceil = Math.ceil
+
+module.exports.encode = encode
+module.exports.decode = decode
+
+function b64int(n) {
+  return n < 26 ? n + 65
+    : n < 52 ? n + 71
+    : n < 62 ? n - 4
+    : n === 62 ? 43
+    : n === 63 ? 47
+    : 65
+}
+
+function intb64(chr) {
+  return chr > 64 && chr < 91 ? chr - 65
+    : chr > 96 && chr < 123 ? chr - 71
+    : chr > 47 && chr < 58 ? chr + 4
+    : chr === 43 ? 62
+    : chr === 47 ? 63
+    : 0
+}
+
+function encode(input) {
+  if (!(input instanceof Uint8Array)) {
+    input = new Uint8Array(input.buffer)
+  }
+
+  var length = input.length
+  var output = ""
+
+  for (var value = 0, idx = 0; idx < length; idx++) {
+    var bit = idx % 3
+
+    value |= input[idx] << (16 >>> bit & 24)
+    if (idx > 0 && !((idx * 4 / 3) % 76)) {
+      output += "\r\n"
+    }
+
+    if (bit === 2 || input.length - idx === 1) {
+      output += String.fromCharCode(
+          b64int(value >>> 18 & 63)
+        , b64int(value >>> 12 & 63)
+        , b64int(value >>> 6 & 63)
+        , b64int(value & 63)
+      )
+      value = 0
+    }
+  }
+
+  return output.replace(/A(?=A$|$)/g, "=")
+}
+
+function decode(input, output) {
+  input = input.replace(/[^A-Za-z0-9\+\/]/g, "")
+
+  var inputLength = input.length
+  var outputLength = inputLength * 3 + 1 >> 2
+  var outidx = 0
+  var inidx = 0
+  var rvalue
+
+  if (!output) output = new Uint8Array(outputLength)
+  if (typeof output === 'string') {
+    var type = output
+    var bytes = parseInt(type.match(/[0-9]+/g), 10) / 8
+    var offset = ceil(outputLength / bytes) * bytes - outputLength
+    if (bytes) outputLength += offset
+    output = new Uint8Array(outputLength)
+    rvalue = new (dtype(type))(output.buffer)
+  } else {
+    rvalue = output
+  }
+
+  for (var value = 0; inidx < inputLength; inidx++) {
+    var bit = inidx & 3
+
+    value |= intb64(
+      input.charCodeAt(inidx)
+    ) << (18 - 6 * bit)
+
+    if (bit === 3 || inputLength - inidx === 1) {
+      for (var sbit = 0; sbit < 3 && outidx < outputLength; sbit++) {
+        output[outidx++] = value >>> (16 >>> sbit & 24) & 255
+      }
+      value = 0
+    }
+  }
+
+  return rvalue
+}
+
+},{"dtype":37}],37:[function(require,module,exports){
+module.exports = function(dtype) {
+  switch (dtype) {
+    case 'int8':
+      return Int8Array
+    case 'int16':
+      return Int16Array
+    case 'int32':
+      return Int32Array
+    case 'uint8':
+      return Uint8Array
+    case 'uint16':
+      return Uint16Array
+    case 'uint32':
+      return Uint32Array
+    case 'float32':
+      return Float32Array
+    case 'float64':
+      return Float64Array
+    case 'array':
+      return Array
+  }
+}
+},{}],38:[function(require,module,exports){
 /*
   GIFEncoder.js
 
@@ -4050,6 +4736,8 @@ function GIFEncoder(width, height) {
   this.dispose = -1; // disposal code (-1 = use default)
   this.firstFrame = true;
   this.sample = 10; // default sample interval for quantizer
+  this.dither = false; // default dithering
+  this.globalPalette = false;
 
   this.out = new ByteArray();
 }
@@ -4113,8 +4801,12 @@ GIFEncoder.prototype.setTransparent = function(color) {
 GIFEncoder.prototype.addFrame = function(imageData) {
   this.image = imageData;
 
+  this.colorTab = this.globalPalette.slice ? this.globalPalette : null;
+
   this.getImagePixels(); // convert to correct format if necessary
   this.analyzePixels(); // build color table & map pixels
+
+  if (this.globalPalette === true) this.globalPalette = this.colorTab;
 
   if (this.firstFrame) {
     this.writeLSD(); // logical screen descriptior
@@ -4127,7 +4819,7 @@ GIFEncoder.prototype.addFrame = function(imageData) {
 
   this.writeGraphicCtrlExt(); // write graphic control extension
   this.writeImageDesc(); // image descriptor
-  if (!this.firstFrame) this.writePalette(); // local color table
+  if (!this.firstFrame && !this.globalPalette) this.writePalette(); // local color table
   this.writePixels(); // encode and write pixel data
 
   this.firstFrame = false;
@@ -4154,6 +4846,38 @@ GIFEncoder.prototype.setQuality = function(quality) {
 };
 
 /*
+  Sets dithering method. Available are:
+  - FALSE no dithering
+  - TRUE or FloydSteinberg
+  - FalseFloydSteinberg
+  - Stucki
+  - Atkinson
+  You can add '-serpentine' to use serpentine scanning
+*/
+GIFEncoder.prototype.setDither = function(dither) {
+  if (dither === true) dither = 'FloydSteinberg';
+  this.dither = dither;
+};
+
+/*
+  Sets global palette for all frames.
+  You can provide TRUE to create global palette from first picture.
+  Or an array of r,g,b,r,g,b,...
+*/
+GIFEncoder.prototype.setGlobalPalette = function(palette) {
+  this.globalPalette = palette;
+};
+
+/*
+  Returns global palette used for all frames.
+  If setGlobalPalette(true) was used, then this function will return
+  calculated palette after the first frame is added.
+*/
+GIFEncoder.prototype.getGlobalPalette = function() {
+  return (this.globalPalette.slice && this.globalPalette.slice(0)) || this.globalPalette;
+};
+
+/*
   Writes GIF file header
 */
 GIFEncoder.prototype.writeHeader = function() {
@@ -4164,25 +4888,17 @@ GIFEncoder.prototype.writeHeader = function() {
   Analyzes current frame colors and creates color map.
 */
 GIFEncoder.prototype.analyzePixels = function() {
-  var len = this.pixels.length;
-  var nPix = len / 3;
-
-  this.indexedPixels = new Uint8Array(nPix);
-
-  var imgq = new NeuQuant(this.pixels, this.sample);
-  imgq.buildColormap(); // create reduced palette
-  this.colorTab = imgq.getColormap();
+  if (!this.colorTab) {
+    var imgq = new NeuQuant(this.pixels, this.sample);
+    imgq.buildColormap(); // create reduced palette
+    this.colorTab = imgq.getColormap();
+  }
 
   // map image pixels to new palette
-  var k = 0;
-  for (var j = 0; j < nPix; j++) {
-    var index = imgq.lookupRGB(
-      this.pixels[k++] & 0xff,
-      this.pixels[k++] & 0xff,
-      this.pixels[k++] & 0xff
-    );
-    this.usedEntry[index] = true;
-    this.indexedPixels[j] = index;
+  if (this.dither) {
+    this.ditherPixels(this.dither.replace('-serpentine', ''), this.dither.match(/-serpentine/) !== null);
+  } else {
+    this.indexPixels();
   }
 
   this.pixels = null;
@@ -4191,19 +4907,136 @@ GIFEncoder.prototype.analyzePixels = function() {
 
   // get closest match to transparent color if specified
   if (this.transparent !== null) {
-    this.transIndex = this.findClosest(this.transparent);
+    this.transIndex = this.findClosest(this.transparent, true);
+  }
+};
+
+/*
+  Index pixels, without dithering
+*/
+GIFEncoder.prototype.indexPixels = function(imgq) {
+  var nPix = this.pixels.length / 3;
+  this.indexedPixels = new Uint8Array(nPix);
+  var k = 0;
+  for (var j = 0; j < nPix; j++) {
+    var index = this.findClosestRGB(
+      this.pixels[k++] & 0xff,
+      this.pixels[k++] & 0xff,
+      this.pixels[k++] & 0xff
+    );
+    this.usedEntry[index] = true;
+    this.indexedPixels[j] = index;
+  }
+};
+
+/*
+  Taken from http://jsbin.com/iXofIji/2/edit by PAEz
+*/
+GIFEncoder.prototype.ditherPixels = function(kernel, serpentine) {
+  var kernels = {
+    FalseFloydSteinberg: [
+      [3 / 8, 1, 0],
+      [3 / 8, 0, 1],
+      [2 / 8, 1, 1]
+    ],
+    FloydSteinberg: [
+      [7 / 16, 1, 0],
+      [3 / 16, -1, 1],
+      [5 / 16, 0, 1],
+      [1 / 16, 1, 1]
+    ],
+    Stucki: [
+      [8 / 42, 1, 0],
+      [4 / 42, 2, 0],
+      [2 / 42, -2, 1],
+      [4 / 42, -1, 1],
+      [8 / 42, 0, 1],
+      [4 / 42, 1, 1],
+      [2 / 42, 2, 1],
+      [1 / 42, -2, 2],
+      [2 / 42, -1, 2],
+      [4 / 42, 0, 2],
+      [2 / 42, 1, 2],
+      [1 / 42, 2, 2]
+    ],
+    Atkinson: [
+      [1 / 8, 1, 0],
+      [1 / 8, 2, 0],
+      [1 / 8, -1, 1],
+      [1 / 8, 0, 1],
+      [1 / 8, 1, 1],
+      [1 / 8, 0, 2]
+    ]
+  };
+
+  if (!kernel || !kernels[kernel]) {
+    throw 'Unknown dithering kernel: ' + kernel;
+  }
+
+  var ds = kernels[kernel];
+  var index = 0,
+    height = this.height,
+    width = this.width,
+    data = this.pixels;
+  var direction = serpentine ? -1 : 1;
+
+  this.indexedPixels = new Uint8Array(this.pixels.length / 3);
+
+  for (var y = 0; y < height; y++) {
+
+    if (serpentine) direction = direction * -1;
+
+    for (var x = (direction == 1 ? 0 : width - 1), xend = (direction == 1 ? width : 0); x !== xend; x += direction) {
+
+      index = (y * width) + x;
+      // Get original colour
+      var idx = index * 3;
+      var r1 = data[idx];
+      var g1 = data[idx + 1];
+      var b1 = data[idx + 2];
+
+      // Get converted colour
+      idx = this.findClosestRGB(r1, g1, b1);
+      this.usedEntry[idx] = true;
+      this.indexedPixels[index] = idx;
+      idx *= 3;
+      var r2 = this.colorTab[idx];
+      var g2 = this.colorTab[idx + 1];
+      var b2 = this.colorTab[idx + 2];
+
+      var er = r1 - r2;
+      var eg = g1 - g2;
+      var eb = b1 - b2;
+
+      for (var i = (direction == 1 ? 0: ds.length - 1), end = (direction == 1 ? ds.length : 0); i !== end; i += direction) {
+        var x1 = ds[i][1]; // *direction;  //  Should this by timesd by direction?..to make the kernel go in the opposite direction....got no idea....
+        var y1 = ds[i][2];
+        if (x1 + x >= 0 && x1 + x < width && y1 + y >= 0 && y1 + y < height) {
+          var d = ds[i][0];
+          idx = index + x1 + (y1 * width);
+          idx *= 3;
+
+          data[idx] = Math.max(0, Math.min(255, data[idx] + er * d));
+          data[idx + 1] = Math.max(0, Math.min(255, data[idx + 1] + eg * d));
+          data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + eb * d));
+        }
+      }
+    }
   }
 };
 
 /*
   Returns index of palette color closest to c
 */
-GIFEncoder.prototype.findClosest = function(c) {
+GIFEncoder.prototype.findClosest = function(c, used) {
+  return this.findClosestRGB((c & 0xFF0000) >> 16, (c & 0x00FF00) >> 8, (c & 0x0000FF), used);
+};
+
+GIFEncoder.prototype.findClosestRGB = function(r, g, b, used) {
   if (this.colorTab === null) return -1;
 
-  var r = (c & 0xFF0000) >> 16;
-  var g = (c & 0x00FF00) >> 8;
-  var b = (c & 0x0000FF);
+  var c = b | (g << 8) | (r << 16);
+
   var minpos = 0;
   var dmin = 256 * 256 * 256;
   var len = this.colorTab.length;
@@ -4214,7 +5047,7 @@ GIFEncoder.prototype.findClosest = function(c) {
     var db = b - (this.colorTab[i] & 0xff);
     var d = dr * dr + dg * dg + db * db;
     var index = parseInt(i / 3);
-    if (this.usedEntry[index] && (d < dmin)) {
+    if ((!used || this.usedEntry[index]) && (d < dmin)) {
       dmin = d;
       minpos = index;
     }
@@ -4292,7 +5125,7 @@ GIFEncoder.prototype.writeImageDesc = function() {
   this.writeShort(this.height);
 
   // packed fields
-  if (this.firstFrame) {
+  if (this.firstFrame || this.globalPalette) {
     // no LCT - GCT is used for first (or only) frame
     this.out.writeByte(0);
   } else {
@@ -4373,7 +5206,7 @@ GIFEncoder.prototype.stream = function() {
 
 module.exports = GIFEncoder;
 
-},{"./LZWEncoder.js":28,"./TypedNeuQuant.js":29}],28:[function(require,module,exports){
+},{"./LZWEncoder.js":39,"./TypedNeuQuant.js":40}],39:[function(require,module,exports){
 /*
   LZWEncoder.js
 
@@ -4584,7 +5417,7 @@ function LZWEncoder(width, height, pixels, colorDepth) {
 
 module.exports = LZWEncoder;
 
-},{}],29:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 /* NeuQuant Neural-Net Quantization Algorithm
  * ------------------------------------------
  *
@@ -5017,687 +5850,4 @@ function NeuQuant(pixels, samplefac) {
 
 module.exports = NeuQuant;
 
-},{}],30:[function(require,module,exports){
-var raf = require('raf-component')
-
-module.exports = createContext
-
-function createContext(canvas, opts, render) {
-  if (typeof opts === 'function') {
-    render = opts
-    opts = {}
-  } else {
-    opts = opts || {}
-  }
-
-  var gl = (
-    canvas.getContext('webgl', opts) ||
-    canvas.getContext('webgl-experimental', opts) ||
-    canvas.getContext('experimental-webgl', opts)
-  )
-
-  if (!gl) {
-    throw new Error('Unable to initialize WebGL')
-  }
-
-  if (render) raf(tick)
-
-  return gl
-
-  function tick() {
-    render(gl)
-    raf(tick)
-  }
-}
-
-},{"raf-component":31}],31:[function(require,module,exports){
-/**
- * Expose `requestAnimationFrame()`.
- */
-
-exports = module.exports = window.requestAnimationFrame
-  || window.webkitRequestAnimationFrame
-  || window.mozRequestAnimationFrame
-  || window.oRequestAnimationFrame
-  || window.msRequestAnimationFrame
-  || fallback;
-
-/**
- * Fallback implementation.
- */
-
-var prev = new Date().getTime();
-function fallback(fn) {
-  var curr = new Date().getTime();
-  var ms = Math.max(0, 16 - (curr - prev));
-  var req = setTimeout(fn, ms);
-  prev = curr;
-  return req;
-}
-
-/**
- * Cancel.
- */
-
-var cancel = window.cancelAnimationFrame
-  || window.webkitCancelAnimationFrame
-  || window.mozCancelAnimationFrame
-  || window.oCancelAnimationFrame
-  || window.msCancelAnimationFrame
-  || window.clearTimeout;
-
-exports.cancel = function(id){
-  cancel.call(window, id);
-};
-
-},{}],32:[function(require,module,exports){
-module.exports = programify
-
-var shader = require('gl-shader-core')
-
-function programify(vertex, fragment, uniforms, attributes) {
-  return function(gl) {
-    return shader(gl, vertex, fragment, uniforms, attributes)
-  }
-}
-
-},{"gl-shader-core":38}],33:[function(require,module,exports){
-module.exports = noop
-
-function noop() {
-  throw new Error(
-      'You should bundle your code ' +
-      'using `glslify` as a transform.'
-  )
-}
-
-},{}],34:[function(require,module,exports){
-'use strict'
-
-module.exports = createAttributeWrapper
-
-//Shader attribute class
-function ShaderAttribute(gl, program, location, dimension, name, constFunc, relink) {
-  this._gl = gl
-  this._program = program
-  this._location = location
-  this._dimension = dimension
-  this._name = name
-  this._constFunc = constFunc
-  this._relink = relink
-}
-
-var proto = ShaderAttribute.prototype
-
-proto.pointer = function setAttribPointer(type, normalized, stride, offset) {
-  var gl = this._gl
-  gl.vertexAttribPointer(this._location, this._dimension, type||gl.FLOAT, !!normalized, stride||0, offset||0)
-  this._gl.enableVertexAttribArray(this._location)
-}
-
-Object.defineProperty(proto, 'location', {
-  get: function() {
-    return this._location
-  }
-  , set: function(v) {
-    if(v !== this._location) {
-      this._location = v
-      this._gl.bindAttribLocation(this._program, v, this._name)
-      this._gl.linkProgram(this._program)
-      this._relink()
-    }
-  }
-})
-
-
-//Adds a vector attribute to obj
-function addVectorAttribute(gl, program, location, dimension, obj, name, doLink) {
-  var constFuncArgs = [ 'gl', 'v' ]
-  var varNames = []
-  for(var i=0; i<dimension; ++i) {
-    constFuncArgs.push('x'+i)
-    varNames.push('x'+i)
-  }
-  constFuncArgs.push([
-    'if(x0.length===void 0){return gl.vertexAttrib', dimension, 'f(v,', varNames.join(), ')}else{return gl.vertexAttrib', dimension, 'fv(v,x0)}'
-  ].join(''))
-  var constFunc = Function.apply(undefined, constFuncArgs)
-  var attr = new ShaderAttribute(gl, program, location, dimension, name, constFunc, doLink)
-  Object.defineProperty(obj, name, {
-    set: function(x) {
-      gl.disableVertexAttribArray(attr._location)
-      constFunc(gl, attr._location, x)
-      return x
-    }
-    , get: function() {
-      return attr
-    }
-    , enumerable: true
-  })
-}
-
-//Create shims for attributes
-function createAttributeWrapper(gl, program, attributes, doLink) {
-  var obj = {}
-  for(var i=0, n=attributes.length; i<n; ++i) {
-    var a = attributes[i]
-    var name = a.name
-    var type = a.type
-    var location = gl.getAttribLocation(program, name)
-    
-    switch(type) {
-      case 'bool':
-      case 'int':
-      case 'float':
-        addVectorAttribute(gl, program, location, 1, obj, name, doLink)
-      break
-      
-      default:
-        if(type.indexOf('vec') >= 0) {
-          var d = type.charCodeAt(type.length-1) - 48
-          if(d < 2 || d > 4) {
-            throw new Error('gl-shader: Invalid data type for attribute ' + name + ': ' + type)
-          }
-          addVectorAttribute(gl, program, location, d, obj, name, doLink)
-        } else {
-          throw new Error('gl-shader: Unknown data type for attribute ' + name + ': ' + type)
-        }
-      break
-    }
-  }
-  return obj
-}
-},{}],35:[function(require,module,exports){
-'use strict'
-
-var dup = require('dup')
-var coallesceUniforms = require('./reflect')
-
-module.exports = createUniformWrapper
-
-//Binds a function and returns a value
-function identity(x) {
-  var c = new Function('y', 'return function(){return y}')
-  return c(x)
-}
-
-//Create shims for uniforms
-function createUniformWrapper(gl, program, uniforms, locations) {
-
-  function makeGetter(index) {
-    var proc = new Function('gl', 'prog', 'locations', 
-      'return function(){return gl.getUniform(prog,locations[' + index + '])}') 
-    return proc(gl, program, locations)
-  }
-
-  function makePropSetter(path, index, type) {
-    switch(type) {
-      case 'bool':
-      case 'int':
-      case 'sampler2D':
-      case 'samplerCube':
-        return 'gl.uniform1i(locations[' + index + '],obj' + path + ')'
-      case 'float':
-        return 'gl.uniform1f(locations[' + index + '],obj' + path + ')'
-      default:
-        var vidx = type.indexOf('vec')
-        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
-          var d = type.charCodeAt(type.length-1) - 48
-          if(d < 2 || d > 4) {
-            throw new Error('gl-shader: Invalid data type')
-          }
-          switch(type.charAt(0)) {
-            case 'b':
-            case 'i':
-              return 'gl.uniform' + d + 'iv(locations[' + index + '],obj' + path + ')'
-            case 'v':
-              return 'gl.uniform' + d + 'fv(locations[' + index + '],obj' + path + ')'
-            default:
-              throw new Error('gl-shader: Unrecognized data type for vector ' + name + ': ' + type)
-          }
-        } else if(type.indexOf('mat') === 0 && type.length === 4) {
-          var d = type.charCodeAt(type.length-1) - 48
-          if(d < 2 || d > 4) {
-            throw new Error('gl-shader: Invalid uniform dimension type for matrix ' + name + ': ' + type)
-          }
-          return 'gl.uniformMatrix' + d + 'fv(locations[' + index + '],false,obj' + path + ')'
-        } else {
-          throw new Error('gl-shader: Unknown uniform data type for ' + name + ': ' + type)
-        }
-      break
-    }
-  }
-
-  function enumerateIndices(prefix, type) {
-    if(typeof type !== 'object') {
-      return [ [prefix, type] ]
-    }
-    var indices = []
-    for(var id in type) {
-      var prop = type[id]
-      var tprefix = prefix
-      if(parseInt(id) + '' === id) {
-        tprefix += '[' + id + ']'
-      } else {
-        tprefix += '.' + id
-      }
-      if(typeof prop === 'object') {
-        indices.push.apply(indices, enumerateIndices(tprefix, prop))
-      } else {
-        indices.push([tprefix, prop])
-      }
-    }
-    return indices
-  }
-
-  function makeSetter(type) {
-    var code = [ 'return function updateProperty(obj){' ]
-    var indices = enumerateIndices('', type)
-    for(var i=0; i<indices.length; ++i) {
-      var item = indices[i]
-      var path = item[0]
-      var idx  = item[1]
-      if(locations[idx]) {
-        code.push(makePropSetter(path, idx, uniforms[idx].type))
-      }
-    }
-    code.push('return obj}')
-    var proc = new Function('gl', 'prog', 'locations', code.join('\n'))
-    return proc(gl, program, locations)
-  }
-
-  function defaultValue(type) {
-    switch(type) {
-      case 'bool':
-        return false
-      case 'int':
-      case 'sampler2D':
-      case 'samplerCube':
-        return 0
-      case 'float':
-        return 0.0
-      default:
-        var vidx = type.indexOf('vec')
-        if(0 <= vidx && vidx <= 1 && type.length === 4 + vidx) {
-          var d = type.charCodeAt(type.length-1) - 48
-          if(d < 2 || d > 4) {
-            throw new Error('gl-shader: Invalid data type')
-          }
-          if(type.charAt(0) === 'b') {
-            return dup(d, false)
-          }
-          return dup(d)
-        } else if(type.indexOf('mat') === 0 && type.length === 4) {
-          var d = type.charCodeAt(type.length-1) - 48
-          if(d < 2 || d > 4) {
-            throw new Error('gl-shader: Invalid uniform dimension type for matrix ' + name + ': ' + type)
-          }
-          return dup([d,d])
-        } else {
-          throw new Error('gl-shader: Unknown uniform data type for ' + name + ': ' + type)
-        }
-      break
-    }
-  }
-
-  function storeProperty(obj, prop, type) {
-    if(typeof type === 'object') {
-      var child = processObject(type)
-      Object.defineProperty(obj, prop, {
-        get: identity(child),
-        set: makeSetter(type),
-        enumerable: true,
-        configurable: false
-      })
-    } else {
-      if(locations[type]) {
-        Object.defineProperty(obj, prop, {
-          get: makeGetter(type),
-          set: makeSetter(type),
-          enumerable: true,
-          configurable: false
-        })
-      } else {
-        obj[prop] = defaultValue(uniforms[type].type)
-      }
-    }
-  }
-
-  function processObject(obj) {
-    var result
-    if(Array.isArray(obj)) {
-      result = new Array(obj.length)
-      for(var i=0; i<obj.length; ++i) {
-        storeProperty(result, i, obj[i])
-      }
-    } else {
-      result = {}
-      for(var id in obj) {
-        storeProperty(result, id, obj[id])
-      }
-    }
-    return result
-  }
-
-  //Return data
-  var coallesced = coallesceUniforms(uniforms, true)
-  return {
-    get: identity(processObject(coallesced)),
-    set: makeSetter(coallesced),
-    enumerable: true,
-    configurable: true
-  }
-}
-
-},{"./reflect":36,"dup":37}],36:[function(require,module,exports){
-'use strict'
-
-module.exports = makeReflectTypes
-
-//Construct type info for reflection.
-//
-// This iterates over the flattened list of uniform type values and smashes them into a JSON object.
-//
-// The leaves of the resulting object are either indices or type strings representing primitive glslify types
-function makeReflectTypes(uniforms, useIndex) {
-  var obj = {}
-  for(var i=0; i<uniforms.length; ++i) {
-    var n = uniforms[i].name
-    var parts = n.split(".")
-    var o = obj
-    for(var j=0; j<parts.length; ++j) {
-      var x = parts[j].split("[")
-      if(x.length > 1) {
-        if(!(x[0] in o)) {
-          o[x[0]] = []
-        }
-        o = o[x[0]]
-        for(var k=1; k<x.length; ++k) {
-          var y = parseInt(x[k])
-          if(k<x.length-1 || j<parts.length-1) {
-            if(!(y in o)) {
-              if(k < x.length-1) {
-                o[y] = []
-              } else {
-                o[y] = {}
-              }
-            }
-            o = o[y]
-          } else {
-            if(useIndex) {
-              o[y] = i
-            } else {
-              o[y] = uniforms[i].type
-            }
-          }
-        }
-      } else if(j < parts.length-1) {
-        if(!(x[0] in o)) {
-          o[x[0]] = {}
-        }
-        o = o[x[0]]
-      } else {
-        if(useIndex) {
-          o[x[0]] = i
-        } else {
-          o[x[0]] = uniforms[i].type
-        }
-      }
-    }
-  }
-  return obj
-}
-},{}],37:[function(require,module,exports){
-module.exports=require(12)
-},{"/Users/hughsk/src/github.com/hughsk/gl-gif/node_modules/a-big-triangle/node_modules/gl-buffer/node_modules/typedarray-pool/node_modules/dup/dup.js":12}],38:[function(require,module,exports){
-'use strict'
-
-var createUniformWrapper = require('./lib/create-uniforms')
-var createAttributeWrapper = require('./lib/create-attributes')
-var makeReflect = require('./lib/reflect')
-
-//Shader object
-function Shader(gl, prog, vertShader, fragShader) {
-  this.gl = gl
-  this.handle = prog
-  this.attributes = null
-  this.uniforms = null
-  this.types = null
-  this.vertexShader = vertShader
-  this.fragmentShader = fragShader
-}
-
-//Binds the shader
-Shader.prototype.bind = function() {
-  this.gl.useProgram(this.handle)
-}
-
-//Destroy shader, release resources
-Shader.prototype.dispose = function() {
-  var gl = this.gl
-  gl.deleteShader(this.vertexShader)
-  gl.deleteShader(this.fragmentShader)
-  gl.deleteProgram(this.handle)
-}
-
-Shader.prototype.updateExports = function(uniforms, attributes) {
-  var locations = new Array(uniforms.length)
-  var program = this.handle
-  var gl = this.gl
-
-  var doLink = relinkUniforms.bind(void 0,
-    gl,
-    program,
-    locations,
-    uniforms
-  )
-  doLink()
-
-  this.types = {
-    uniforms: makeReflect(uniforms),
-    attributes: makeReflect(attributes)
-  }
-
-  this.attributes = createAttributeWrapper(
-    gl,
-    program,
-    attributes,
-    doLink
-  )
-
-  Object.defineProperty(this, 'uniforms', createUniformWrapper(
-    gl,
-    program,
-    uniforms,
-    locations
-  ))
-}
-
-//Relinks all uniforms
-function relinkUniforms(gl, program, locations, uniforms) {
-  for(var i=0; i<uniforms.length; ++i) {
-    locations[i] = gl.getUniformLocation(program, uniforms[i].name)
-  }
-}
-
-//Compiles and links a shader program with the given attribute and vertex list
-function createShader(
-    gl
-  , vertSource
-  , fragSource
-  , uniforms
-  , attributes) {
-  
-  //Compile vertex shader
-  var vertShader = gl.createShader(gl.VERTEX_SHADER)
-  gl.shaderSource(vertShader, vertSource)
-  gl.compileShader(vertShader)
-  if(!gl.getShaderParameter(vertShader, gl.COMPILE_STATUS)) {
-    var errLog = gl.getShaderInfoLog(vertShader)
-    console.error('gl-shader: Error compling vertex shader:', errLog)
-    throw new Error('gl-shader: Error compiling vertex shader:' + errLog)
-  }
-  
-  //Compile fragment shader
-  var fragShader = gl.createShader(gl.FRAGMENT_SHADER)
-  gl.shaderSource(fragShader, fragSource)
-  gl.compileShader(fragShader)
-  if(!gl.getShaderParameter(fragShader, gl.COMPILE_STATUS)) {
-    var errLog = gl.getShaderInfoLog(fragShader)
-    console.error('gl-shader: Error compiling fragment shader:', errLog)
-    throw new Error('gl-shader: Error compiling fragment shader:' + errLog)
-  }
-  
-  //Link program
-  var program = gl.createProgram()
-  gl.attachShader(program, fragShader)
-  gl.attachShader(program, vertShader)
-
-  //Optional default attriubte locations
-  attributes.forEach(function(a) {
-    if (typeof a.location === 'number') 
-      gl.bindAttribLocation(program, a.location, a.name)
-  })
-
-  gl.linkProgram(program)
-  if(!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    var errLog = gl.getProgramInfoLog(program)
-    console.error('gl-shader: Error linking shader program:', errLog)
-    throw new Error('gl-shader: Error linking shader program:' + errLog)
-  }
-  
-  //Return final linked shader object
-  var shader = new Shader(
-    gl,
-    program,
-    vertShader,
-    fragShader
-  )
-  shader.updateExports(uniforms, attributes)
-
-  return shader
-}
-
-module.exports = createShader
-
-},{"./lib/create-attributes":34,"./lib/create-uniforms":35,"./lib/reflect":36}],39:[function(require,module,exports){
-// Original implementation sourced via:
-// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Base64_encoding_and_decoding#Appendix.3A_Decode_a_Base64_string_to_Uint8Array_or_ArrayBuffer
-
-var dtype = require('dtype')
-var ceil = Math.ceil
-
-module.exports.encode = encode
-module.exports.decode = decode
-
-function b64int(n) {
-  return n < 26 ? n + 65
-    : n < 52 ? n + 71
-    : n < 62 ? n - 4
-    : n === 62 ? 43
-    : n === 63 ? 47
-    : 65
-}
-
-function intb64(chr) {
-  return chr > 64 && chr < 91 ? chr - 65
-    : chr > 96 && chr < 123 ? chr - 71
-    : chr > 47 && chr < 58 ? chr + 4
-    : chr === 43 ? 62
-    : chr === 47 ? 63
-    : 0
-}
-
-function encode(input) {
-  if (!(input instanceof Uint8Array)) {
-    input = new Uint8Array(input.buffer)
-  }
-
-  var length = input.length
-  var output = ""
-
-  for (var value = 0, idx = 0; idx < length; idx++) {
-    var bit = idx % 3
-
-    value |= input[idx] << (16 >>> bit & 24)
-    if (idx > 0 && !((idx * 4 / 3) % 76)) {
-      output += "\r\n"
-    }
-
-    if (bit === 2 || input.length - idx === 1) {
-      output += String.fromCharCode(
-          b64int(value >>> 18 & 63)
-        , b64int(value >>> 12 & 63)
-        , b64int(value >>> 6 & 63)
-        , b64int(value & 63)
-      )
-      value = 0
-    }
-  }
-
-  return output.replace(/A(?=A$|$)/g, "=")
-}
-
-function decode(input, output) {
-  input = input.replace(/[^A-Za-z0-9\+\/]/g, "")
-
-  var inputLength = input.length
-  var outputLength = inputLength * 3 + 1 >> 2
-  var outidx = 0
-  var inidx = 0
-  var rvalue
-
-  if (!output) output = new Uint8Array(outputLength)
-  if (typeof output === 'string') {
-    var type = output
-    var bytes = parseInt(type.match(/[0-9]+/g), 10) / 8
-    var offset = ceil(outputLength / bytes) * bytes - outputLength
-    if (bytes) outputLength += offset
-    output = new Uint8Array(outputLength)
-    rvalue = new (dtype(type))(output.buffer)
-  } else {
-    rvalue = output
-  }
-
-  for (var value = 0; inidx < inputLength; inidx++) {
-    var bit = inidx & 3
-
-    value |= intb64(
-      input.charCodeAt(inidx)
-    ) << (18 - 6 * bit)
-
-    if (bit === 3 || inputLength - inidx === 1) {
-      for (var sbit = 0; sbit < 3 && outidx < outputLength; sbit++) {
-        output[outidx++] = value >>> (16 >>> sbit & 24) & 255
-      }
-      value = 0
-    }
-  }
-
-  return rvalue
-}
-
-},{"dtype":40}],40:[function(require,module,exports){
-module.exports = function(dtype) {
-  switch (dtype) {
-    case 'int8':
-      return Int8Array
-    case 'int16':
-      return Int16Array
-    case 'int32':
-      return Int32Array
-    case 'uint8':
-      return Uint8Array
-    case 'uint16':
-      return Uint16Array
-    case 'uint32':
-      return Uint32Array
-    case 'float32':
-      return Float32Array
-    case 'float64':
-      return Float64Array
-    case 'array':
-      return Array
-  }
-}
 },{}]},{},[1]);
