@@ -21,6 +21,7 @@ function GIF(gl, opts) {
   canvas.width  = width
   canvas.height = height
 
+  if (opts.dither) encoder.setDither(opts.dither)
   encoder.setRepeat(opts.repeat || 0)
   encoder.setFrameRate(opts.fps || 30)
   encoder.setTransparent(opts.transparent || null)
