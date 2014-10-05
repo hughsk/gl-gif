@@ -1,4 +1,4 @@
-var GIFEncoder = require('gif.js/src/GIFEncoder')
+var GIFEncoder = require('./vendor/GIFEncoder')
 var getPixels  = require('canvas-pixels')
 var tab64      = require('tab64')
 var noop       = (function(){})
@@ -21,6 +21,7 @@ function GIF(gl, opts) {
   canvas.width  = width
   canvas.height = height
 
+  if (opts.dither) encoder.setDither(opts.dither)
   encoder.setRepeat(opts.repeat || 0)
   encoder.setFrameRate(opts.fps || 30)
   encoder.setTransparent(opts.transparent || null)

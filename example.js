@@ -10,8 +10,10 @@ var remaining = 60
 var total = remaining
 var gif = GIF(gl, {
     fps: 24
-  , width: 512
-  , height: 512
+  , width: 175
+  , height: 175
+  , quality: 20
+  , dither: true
 })
 
 var shader = glslify({

@@ -20,6 +20,14 @@ options:
 * `height`: resizes the canvas `height`, which determines the size of the GIF.
 * `quality`: the quality at which to render the GIF, where 1 is the best (but slow)
   and 20 is the worst (but fast). Defaults to 10.
+* `dither`: the dithering mode to use. Set to `true` for Floyd-Steinberg,
+  `false` for none, or pass in any of the following strings:
+  * `FloydSteinberg`
+  * `FloydSteinberg-serpentine`
+  * `Stucki`
+  * `Stucki-serpentine`
+  * `Atkinson`
+  * `Atkinson-serpentine`
 
 Note that if you change the size of your canvas after creating the encoder,
 `gif.tick` will throw an error.
