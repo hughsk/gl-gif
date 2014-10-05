@@ -1,4 +1,4 @@
-var GIFEncoder = require('gif.js/src/GIFEncoder')
+var GIFEncoder = require('./vendor/GIFEncoder')
 var getPixels  = require('canvas-pixels')
 var tab64      = require('tab64')
 var noop       = (function(){})

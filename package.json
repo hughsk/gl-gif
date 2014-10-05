@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "canvas-pixels": "0.0.0",
-    "gif.js": "^0.1.6",
     "tab64": "0.0.1"
   },
   "devDependencies": {
